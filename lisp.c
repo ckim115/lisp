@@ -177,6 +177,7 @@ void lval_println(lval* v) {
   putchar('\n');
 }
 
+/* Function performing calculator commands */
 lval* builtin_op(lval* a, char* op) {
   
   /* Ensure all arguments are numbers */
@@ -225,6 +226,8 @@ lval* builtin_op(lval* a, char* op) {
 
 lval* lval_eval(lval*v);
 
+lval* builtin(lval* v, char* func);
+
 /* Evaluate the Sexpr */ 
 lval* lval_eval_sexpr(lval* v) {
   
@@ -253,7 +256,7 @@ lval* lval_eval_sexpr(lval* v) {
   }
   
   /* Call builtin with operator */
-  lval* result = builtin_op(v, f->sym);
+  lval* result = builtin(v, f->sym);
   lval_del(f);
   return result;
 }
@@ -299,6 +302,105 @@ lval* lval_read(mpc_ast_t* t) {
   return x;
 }
 
+/* Builtin functions for handling qexprs */
+/* Macro for handling error conditions in builtin functions 
+     if condition not met, return error */
+#define LASSERT(args, cond, err) \
+  if (!(cond)) { lval_del(args); return lval_err(err); }
+
+/* Function that pops the first item of a list and removes the list */
+lval* builtin_head(lval* a) {
+  /* Must pass exactly 1 arguement, which is a qexpr */
+  LASSERT(a, a->count == 1,
+    "Function 'head' passed too many arguements!");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'head' passed incorrect type!");
+  LASSERT(a, a->cell[0]->count != 0,
+    "Function 'head' passed {}");
+    
+  lval* v = lval_take(a, 0);
+  /* Keep popping only 1 item remaining in v (head) */
+  while (v->count > 1) { lval_del(lval_pop(v, 1)); }
+  return v;
+}
+
+/* Function that pops and delete the first item of a list, returning hte list */
+lval* builtin_tail(lval* a) {
+  LASSERT(a, a->count == 1,
+    "Function 'head' passed too many arguements!");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'head' passed incorrect type!");
+  LASSERT(a, a->cell[0]->count != 0,
+    "Function 'head' passed {}");
+  
+  lval* v = lval_take(a, 0);
+  lval_del(lval_pop(v, 0));
+  return v;
+}
+
+/* Function that converts a sexpr to a qexpr */
+lval* builtin_list(lval* a) {
+  a->type = LVAL_QEXPR;
+  return a;
+}
+
+/* Function that converts a qexpr to a sexpr and evaluates */
+lval* builtin_eval(lval* a) {
+  LASSERT(a, a->count == 1,
+    "Function 'eval' passed too many arguements!");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'eval' passed incorrect type!");
+    
+  lval* x = lval_take(a, 0);
+  x->type = LVAL_SEXPR;
+  return lval_eval(x);
+}
+
+/* Helper function to join qexprs in builtin_join. Qexprs can contain multiple
+     sexprs so lval_add cannot be used directly */
+lval* lval_join(lval* x, lval* y) {
+  /* For each cell in 'y' add it to 'x' */
+  while (y->count) {
+    x = lval_add(x, lval_pop(y, 0));
+  }
+  
+  /* Delete empty 'y' and return 'x' */
+  lval_del(y);
+  return x;
+}
+
+/* Function that joins multiple qexprs into one */
+lval* builtin_join(lval* a) {
+  /* Check if all qexprs */
+  for (int i = 0; i < a->count; i++) {
+    LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
+      "Function 'join' passed incorrect type!");
+  }
+  
+  lval* x = lval_pop(a, 0);
+  
+  while (a->count) {
+    x = lval_join(x, lval_pop(a, 0));
+  }
+  
+  lval_del(a);
+  return x;
+}
+
+/* Function that calls correct builtin function depending on what symbols are 
+     encountered */
+lval* builtin(lval* a, char* func) {
+  if (strcmp("list", func) == 0) { return builtin_list(a); }
+  if (strcmp("head", func) == 0) { return builtin_head(a); }
+  if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+  if (strcmp("join", func) == 0) { return builtin_join(a); }
+  if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+  if (strstr("+-/*", func)) { return builtin_op(a, func); }
+  printf("%s\n", func);
+  lval_del(a);
+  return lval_err("Unknown Function!");
+}
+
 int main(int argc, char** argv) {
   /* Create some parsers */
   mpc_parser_t* Number = mpc_new("number");
@@ -312,7 +414,8 @@ int main(int argc, char** argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "								\
       number	: /-?[0-9]+/ ;					\
-      symbol	: '+' | '-' | '*' | '/' ;			\
+      symbol	: \"list\" | \"head\" | \"tail\"		\
+      		| \"join\" | \"eval\" | '+' | '-' | '*' | '/' ;	\
       sexpr	: '(' <expr>* ')' ;				\
       qexpr	: '{' <expr>* '}' ;				\
       expr   : <number> | <symbol> | <sexpr> | <qexpr> ;	\
