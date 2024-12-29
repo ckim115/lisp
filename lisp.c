@@ -72,11 +72,26 @@ lval* lval_num(long x) {
 }
 
 /*Construct a pointer to a new Error lval */
-lval* lval_err(char* m) {
+lval* lval_err(char* m, ...) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_ERR;
-  v->err = malloc(strlen(m) + 1);
-  strcpy(v->err, m);
+  
+  /* Create a va_list and initialize with va_start */
+  va_list va;
+  va_start(va, m);
+  
+  /* Allocate 512 bytes of space */
+  v->err = malloc(512);
+  
+  /* printf the error string with a maximum of 511 bytes */
+  vsnprintf(v->err, 511, m, va);
+  
+  /* Reallocate to number of bytes actually needed*/
+  v->err = realloc(v->err, strlen(v->err) + 1);
+  
+  /* Cleanup va list */
+  va_end(va);
+  
   return v;
 }
 
@@ -179,6 +194,8 @@ lenv* lenv_new(void) {
   return e;
 }
 
+char* ltype_name(int t);
+
 /* Deletes an environment */
 void lenv_del(lenv* e) {
   for (int i = 0; i < e->count; i++) {
@@ -200,7 +217,7 @@ lval* lenv_get(lenv* e, lval* k) {
   }
   
   /* No symbol found */
-  return lval_err("unbound symbol!");
+  return lval_err("Unbound Symbol '%s'", k->sym);
 }
 
 /* Replace an existing value or put a new value into the environment */
@@ -295,12 +312,13 @@ void lval_println(lval* v) {
 
 /* Function performing calculator commands */
 lval* builtin_op(lenv* e, lval* a, char* op) {
-  
   /* Ensure all arguments are numbers */
   for (int i = 0; i < a->count; i++) {
     if (a->cell[i]->type != LVAL_NUM) {
       lval_del(a);
-      return lval_err("Cannot operate on non-number!");
+      return lval_err("Function '%s' passed incorrect type for argument 1. "
+      "Expected %s.", 
+      op, ltype_name(LVAL_NUM));
     }
   }
   
@@ -327,7 +345,7 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
       if (y->num == 0) {
         lval_del(x);
         lval_del(y);
-        x = lval_err("Division By Zero!"); 
+        x = lval_err("Division By Zero."); 
         break;
       }
       x->num /= y->num;
@@ -346,7 +364,6 @@ lval* builtin(lenv* e, lval* v, char* func);
 
 /* Evaluate the Sexpr */ 
 lval* lval_eval_sexpr(lenv* e, lval* v) {
-  
   /* Evaluate Children */
   for(int i = 0; i < v->count; i++) {
     v->cell[i] = lval_eval(e, v->cell[i]);
@@ -366,7 +383,8 @@ lval* lval_eval_sexpr(lenv* e, lval* v) {
   if (f->type != LVAL_FUN) {
     lval_del(f);
     lval_del(v);
-    return lval_err("first element is not a function!");
+    return lval_err("First element is not a function. Got %s, expected %s",
+      ltype_name(f->type), ltype_name(LVAL_FUN));
   }
   
   /* If so call function to get result */
@@ -425,16 +443,37 @@ lval* lval_read(mpc_ast_t* t) {
 /* Builtin functions for handling qexprs */
 /* Macro for handling error conditions in builtin functions 
      if condition not met, return error */
-#define LASSERT(args, cond, err) \
-  if (!(cond)) { lval_del(args); return lval_err(err); }
+#define LASSERT(args, cond, m, ...) \
+  if (!(cond)) { \
+    lval* err = lval_err(m, ##__VA_ARGS__); \
+    lval_del(args); \
+    return err; \
+    }
+
+/* String names for lval types */
+char* ltype_name(int t) {
+  switch(t) {
+    case LVAL_FUN: return "Function";
+    case LVAL_NUM: return "Number";
+    case LVAL_ERR: return "Error";
+    case LVAL_SYM: return "Symbol";
+    case LVAL_SEXPR: return "S-Expression";
+    case LVAL_QEXPR: return "Q-Expression";
+    default: return "Unknown";
+  }
+}
 
 /* Function that pops the first item of a list and removes the list */
 lval* builtin_head(lenv* e, lval* a) {
   /* Must pass exactly 1 arguement, which is a qexpr */
   LASSERT(a, a->count == 1,
-    "Function 'head' passed too many arguements!");
+    "Function 'head' passed too many arguements. "
+    "Got %i, expected %i.",
+    a->count, 1);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'head' passed incorrect type!");
+    "Function 'head' passed incorrect type. "
+    "Got %s, expected %s.",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
   LASSERT(a, a->cell[0]->count != 0,
     "Function 'head' passed {}");
     
@@ -447,9 +486,13 @@ lval* builtin_head(lenv* e, lval* a) {
 /* Function that pops and delete the first item of a list, returning hte list */
 lval* builtin_tail(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-    "Function 'head' passed too many arguements!");
+    "Function 'head' passed too many arguements. "
+    "Got %i, expected %i.",
+    a->count, 1);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'head' passed incorrect type!");
+    "Function 'head' passed incorrect type. "
+    "Got %s, expected %s.",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
   LASSERT(a, a->cell[0]->count != 0,
     "Function 'head' passed {}");
   
@@ -467,9 +510,13 @@ lval* builtin_list(lenv* e, lval* a) {
 /* Function that converts a qexpr to a sexpr and evaluates */
 lval* builtin_eval(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-    "Function 'eval' passed too many arguements!");
+    "Function 'eval' passed too many arguements!"
+    "Got %i, expected %i",
+    a->count, 1);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'eval' passed incorrect type!");
+    "Function 'eval' passed incorrect type!"
+    "Got %s, expected %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
     
   lval* x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
@@ -494,7 +541,9 @@ lval* builtin_join(lenv* e, lval* a) {
   /* Check if all qexprs */
   for (int i = 0; i < a->count; i++) {
     LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
-      "Function 'join' passed incorrect type!");
+      "Function 'join' passed incorrect type. "
+      "Got %s, expected %s",
+      ltype_name(a->cell[i]->type), ltype_name(LVAL_QEXPR));
   }
   
   lval* x = lval_pop(a, 0);
@@ -536,7 +585,9 @@ void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
 /* Allow user to define own function */
 lval* builtin_def(lenv* e, lval* a) {
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'def' passed incorrect type!");
+    "Function 'def' passed incorrect type. "
+    "Got %s, expected %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
   
   
   /* First argument is symbol list (ex 'x' in {x} 20) */
@@ -544,13 +595,17 @@ lval* builtin_def(lenv* e, lval* a) {
   
   /* Ensure all elements of first list are symbols */
   for (int i = 0; i < syms->count; i++) {
-    LASSERT(a, syms->cell[i]->type == LVAL_SYM, 
-      "Function 'def' cannot define non-symbol");
+    LASSERT(a, syms->cell[i]->type == LVAL_SYM,
+      "Function 'def' cannot define non-symbol. "
+      "Got %s, expected %s.",
+      ltype_name(syms->cell[i]->type), ltype_name(LVAL_SYM));
   }
   
   /* Check correct number of symbols and values (ensure its not {x} 10 20, etc) */
   LASSERT(a, syms->count == a->count-1,
-    "Function 'def' cannot define incorrect number of values to symbols");
+    "Function 'def' cannot define incorrect number of values to symbols. "
+    "Number of symbols was %i, number of values was %i",
+    syms->count, a->count-1);
 
   /* Assign copies of values to symbols */
   for (int i = 0; i < syms->count; i++) {
@@ -611,7 +666,6 @@ int main(int argc, char** argv) {
   
   /* In a never ending loop */
   while (1) {
-    
     /* Output prompt and get input */
     char* input = readline("lispy> ");
     /* Add input to history */
