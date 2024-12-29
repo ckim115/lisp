@@ -533,8 +533,39 @@ void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
   lval_del(v);
 }
 
+/* Allow user to define own function */
+lval* builtin_def(lenv* e, lval* a) {
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+    "Function 'def' passed incorrect type!");
+  
+  
+  /* First argument is symbol list (ex 'x' in {x} 20) */
+  lval* syms = a->cell[0];
+  
+  /* Ensure all elements of first list are symbols */
+  for (int i = 0; i < syms->count; i++) {
+    LASSERT(a, syms->cell[i]->type == LVAL_SYM, 
+      "Function 'def' cannot define non-symbol");
+  }
+  
+  /* Check correct number of symbols and values (ensure its not {x} 10 20, etc) */
+  LASSERT(a, syms->count == a->count-1,
+    "Function 'def' cannot define incorrect number of values to symbols");
+
+  /* Assign copies of values to symbols */
+  for (int i = 0; i < syms->count; i++) {
+    lenv_put(e, syms->cell[i], a->cell[i+1]);
+  }
+  
+  lval_del(a);
+  return lval_sexpr(); /* empty () if done correctly */
+}
+
 /* Add builtin functions to environment */
 void lenv_add_builtins(lenv* e) {
+  /* Variable Functions */
+  lenv_add_builtin(e, "def", builtin_def);
+  
   /* List Functions */
   lenv_add_builtin(e, "list", builtin_list);
   lenv_add_builtin(e, "head", builtin_head);
