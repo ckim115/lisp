@@ -477,6 +477,7 @@ lval* lval_read(mpc_ast_t* t) {
 }
 
 lval* builtin_eval(lenv* e, lval* a);
+lval* builtin_list(lenv* e, lval* a);
 
 /* Runs when expression is called and function is evaluated.
      If the number of arguements is less than the formals, return a
@@ -502,6 +503,22 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
     
     /* First symbol arguement pair */
     lval* sym = lval_pop(f->formals, 0);
+    /* Special case to deal with '&' from {x & xs} */
+    if (strcmp(sym->sym, "&") == 0) {
+      /* Ensure '&' is followed by another symbol (list to store x+ variables on */
+      if (f->formals->count != 1) {
+        lval_del(a);
+        return lval_err("Function format invalid. "
+          "Symbol '&' not followed by single symbol.");
+      }
+      
+      /* Nest formal should be bound to remaining arguments */
+      lval* nsym = lval_pop(f->formals, 0);
+      lenv_put(f->env, nsym, builtin_list(e, a));
+      lval_del(sym); lval_del(nsym);
+      break;
+    }
+    
     lval* val = lval_pop(a, 0);
     lenv_put(f->env, sym, val);
     
@@ -510,6 +527,29 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
   }
   
   lval_del(a);
+  
+  /* If '&' remains in formal list bind to empty list 
+    Case where no variable arguments were supplied */
+  if(f->formals->count > 0 && 
+    strcmp(f->formals->cell[0]->sym, "&") == 0) {
+    
+    /* Check that & is not passed invalidly */
+    if (f->formals->count != 2) {
+      return lval_err("Function formal invalid. "
+        "Symbol '&' not followed by sigle symbol.");
+    }
+    
+    /* Remove '&' symbol */
+    lval_del(lval_pop(f->formals, 0));
+    
+    /* Pop next symbol and create empty list */
+    lval* sym = lval_pop(f->formals, 0);
+    lval* val = lval_qexpr();
+    
+    /* Bind to environment then delete */
+    lenv_put(f->env, sym, val);
+    lval_del(sym); lval_del(val);
+  }
   
   /* If all formals have been bound */
   if (f->formals->count == 0) {
