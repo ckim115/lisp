@@ -704,7 +704,7 @@ lval* builtin_list(lenv* e, lval* a) {
 /* Function that converts a qexpr to a sexpr and evaluates */
 lval* builtin_eval(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-    "Function 'eval' passed too many arguements!"
+    "Function 'eval' passed the wrong number of arguements. "
     "Got %i, expected %i",
     a->count, 1);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
@@ -881,7 +881,7 @@ lval* builtin_eq(lenv* e, lval* a) {
   return lval_bool(true);
 }
 
-/* Function that checks if two number values are equal */
+/* Function that checks if one number is greater than the second */
 lval* builtin_great(lenv* e, lval* a) {
   /* Check that there are only 2 values being compared */
   LASSERT(a, a->count == 2,
@@ -906,7 +906,7 @@ lval* builtin_great(lenv* e, lval* a) {
   return lval_bool(true);
 }
 
-/* Function that checks if two number values are equal */
+/* Function that checks if one number is less than the second */
 lval* builtin_less(lenv* e, lval* a) {
   /* Check that there are only 2 values being compared */
   LASSERT(a, a->count == 2,
@@ -931,7 +931,7 @@ lval* builtin_less(lenv* e, lval* a) {
   return lval_bool(true);
 }
 
-/* Function that checks if two number values are equal */
+/* Function that checks if two number values are greater than or equal */
 lval* builtin_geq(lenv* e, lval* a) {
   /* Check that there are only 2 values being compared */
   LASSERT(a, a->count == 2,
@@ -956,7 +956,7 @@ lval* builtin_geq(lenv* e, lval* a) {
   return lval_bool(true);
 }
 
-/* Function that checks if two number values are equal */
+/* Function that checks if two number values are less than or equal */
 lval* builtin_leq(lenv* e, lval* a) {
   /* Check that there are only 2 values being compared */
   LASSERT(a, a->count == 2,
@@ -981,7 +981,7 @@ lval* builtin_leq(lenv* e, lval* a) {
   return lval_bool(true);
 }
 
-/* Function that checks if two number values are equal */
+/* Function that checks if two number values are not equal */
 lval* builtin_neq(lenv* e, lval* a) {
   /* Check that there are only 2 values being compared */
   LASSERT(a, a->count == 2,
@@ -1006,10 +1006,42 @@ lval* builtin_neq(lenv* e, lval* a) {
   return lval_bool(false);
 }
 
+/* Function that checks if two number values are equal */
+lval* builtin_if(lenv* e, lval* a) {
+  /* Check that there is code that evaluates */
+  LASSERT(a, a->count > 1,
+    "Can only compare one conditional at a time. ");
+    
+  /* Check if evaluating a conditional */
+  LASSERT(a, a->cell[0]->type == LVAL_BOOL,
+    "Function 'if' passed incorrect type. "
+    "Got %s, expected %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_BOOL));
+    
+  if (lval_pop(a, 0)->valid) {
+    lval* x = lval_pop(a, 0);
+    lval_del(a);
+    return x;
+  }
+  
+  lval_pop(a, 0);
+  /* Else statement */
+  if (a->count == 1) {
+    lval* x = lval_pop(a, 0);
+    lval_del(a);
+    return x;
+  }
+  
+  lval_del(a);
+  return lval_err("Could not parse conditional if");
+}
+
 /* Add builtin functions to environment */
 void lenv_add_builtins(lenv* e) {
+  /* Conditional Functions */
+  lenv_add_builtin(e, "if", builtin_if);
+  
   /* Comparison Functions */
-  /* Variable Functions */
   lenv_add_builtin(e, "==", builtin_eq);
   lenv_add_builtin(e, ">", builtin_great);
   lenv_add_builtin(e, "<", builtin_less);
@@ -1044,7 +1076,6 @@ int main(int argc, char** argv) {
   mpc_parser_t* Qexpr = mpc_new("qexpr");
   mpc_parser_t* Expr = mpc_new("expr");
   mpc_parser_t* Lispy = mpc_new("lispy");
-  mpc_parser_t* Boolean = mpc_new("boolean");
   
   /* Define with following Language */
   mpca_lang(MPCA_LANG_DEFAULT,
@@ -1055,9 +1086,8 @@ int main(int argc, char** argv) {
       qexpr	: '{' <expr>* '}' ;			\
       expr   : <number> | <symbol> | <sexpr> | <qexpr> ;\
       lispy	: /^/ <expr>* /$/ ;			\
-      boolean	: /[tf]/ ;				\
     ",
-    Number, Symbol, Sexpr, Qexpr, Expr, Lispy, Boolean);
+    Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
   
   /* Print Version and Exit Information */
   puts("Lispy Version 0.0.0.0.5");
@@ -1097,7 +1127,7 @@ int main(int argc, char** argv) {
   lenv_del(e);
   
   /* Undefine and Delete the Parser */
-  mpc_cleanup(7, Number, Symbol, Sexpr, Qexpr, Expr, Lispy, Boolean);
+  mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
   
   return 0;
 }
