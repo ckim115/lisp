@@ -36,7 +36,7 @@ typedef struct lenv lenv;
 
 /* Lisp Value */
 /* Enum for possible lval types */
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN };
+enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN, LVAL_STR };
 
 /* New function pointer type declaration lbuiltin.
     To get an lval*, we dereference lbuiltin and call with lenv* and lval* */
@@ -46,9 +46,10 @@ struct lval {
   int type;
   
   long num;
-  /* Error and Symbol types have some string data; will need to free */
+  /* Error Symbol and String types have some string data; will need to free */
   char* err;
   char* sym;
+  char* str;
   
   /* If type LVAL_FUN, holding function. If user-defined, NULL*/
   lbuiltin builtin; 
@@ -110,7 +111,7 @@ lval* lval_sym(char* s) {
   return v;
 }
 
-/*Construct a pointer to a new empty Sexpr lval */
+/* Construct a pointer to a new empty Sexpr lval */
 lval* lval_sexpr(void) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_SEXPR;
@@ -133,6 +134,15 @@ lval* lval_fun(lbuiltin func) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_FUN;
   v->builtin = func;
+  return v;
+}
+
+/* Construct a pointer to a new String lval */
+lval* lval_str(char* s) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_STR;
+  v->str = malloc(strlen(s) + 1);
+  strcpy(v->str, s);
   return v;
 }
 
@@ -177,6 +187,10 @@ lval* lval_copy(lval* v) {
     case LVAL_SYM:
       x->sym = malloc(strlen(v->sym)+1);
       strcpy(x->sym, v->sym);
+      break;
+    case LVAL_STR:
+      x->str = malloc(strlen(v->str)+1);
+      strcpy(x->str, v->str);
       break;
     case LVAL_QEXPR:
     case LVAL_SEXPR:
@@ -225,6 +239,7 @@ void lval_del(lval* v) {
     /* For Err of Sym free the string data */
     case LVAL_ERR: free(v->err); break;
     case LVAL_SYM: free(v->sym); break;
+    case LVAL_STR: free(v->str); break;
     
     /* If Qexpr/Sexpr then delete all elements inside cell */
     case LVAL_QEXPR:
@@ -358,6 +373,18 @@ void lval_expr_print(lval* v, char open, char close) {
   putchar(close);
 }
 
+/* Used for printing lvals of the String value as a user might input it,
+     taking user escape symbols into account (/n) */
+void lval_print_str(lval* v) {
+  /* Copy string and pass through escaped function */
+  char* escaped = malloc(strlen(v->str)+1);
+  strcpy(escaped, v->str);
+  
+  escaped = mpcf_escape(escaped);
+  printf("\"%s\"", escaped);
+  free(escaped);
+}
+
 /* Print an lval */
 void lval_print(lval* v) {
   switch (v->type) {
@@ -366,6 +393,7 @@ void lval_print(lval* v) {
     /* In the case the type is an error */
     case LVAL_ERR:	printf("Error: %s", v->err); break;
     case LVAL_SYM:	printf("%s", v->sym); break;
+    case LVAL_STR:	lval_print_str(v); break;
     case LVAL_SEXPR:	lval_expr_print(v, '(', ')'); break;
     case LVAL_QEXPR:	lval_expr_print(v, '{', '}'); break;
     case LVAL_FUN:
@@ -450,10 +478,25 @@ lval* lval_read_num(mpc_ast_t* t) {
   return errno != ERANGE ? lval_num(x) : lval_err("invalid number");
 }
 
+/* Deals with reading user input strings as they are in an escape format */
+lval* lval_read_str(mpc_ast_t* t) {
+  /* Cut off final quote char */
+  t->contents[strlen(t->contents)-1] = '\0';
+  /* Copy in string without first quote char */
+  char* unescaped = malloc(strlen(t->contents+1)+1);
+  strcpy(unescaped, t->contents+1);
+  
+  unescaped = mpcf_unescape(unescaped);
+  lval* str = lval_str(unescaped);
+  
+  free(unescaped);
+  return str;
+}
+
 /* Read a node */
 lval* lval_read(mpc_ast_t* t) {
-  
-  /* If Symbol or Number return conversion to that type */
+  /* If Symbol String or Number return conversion to that type */
+  if (strstr(t->tag, "string")) { return lval_read_str(t); }
   if (strstr(t->tag, "number")) { return lval_read_num(t); }
   if (strstr(t->tag, "symbol")) { return lval_sym(t->contents); }
   
@@ -472,7 +515,6 @@ lval* lval_read(mpc_ast_t* t) {
     if (strcmp(t->children[i]->tag, "regex") == 0) { continue; }
     x = lval_add(x, lval_read(t->children[i]));
   }
-  
   return x;
 }
 
@@ -580,6 +622,7 @@ char* ltype_name(int t) {
     case LVAL_NUM: return "Number";
     case LVAL_ERR: return "Error";
     case LVAL_SYM: return "Symbol";
+    case LVAL_STR: return "String";
     case LVAL_SEXPR: return "S-Expression";
     case LVAL_QEXPR: return "Q-Expression";
     default: return "Unknown";
@@ -891,6 +934,7 @@ int lval_eq(lval* x, lval* y) {
     
     case LVAL_ERR: return (strcmp(x->err, y->err) == 0);
     case LVAL_SYM: return (strcmp(x->sym, y->sym) == 0);
+    case LVAL_STR: return (strcmp(x->str, y->str) == 0);
     
     case LVAL_FUN: 
       if (x->builtin || y->builtin) {
@@ -1010,18 +1054,20 @@ int main(int argc, char** argv) {
   mpc_parser_t* Qexpr = mpc_new("qexpr");
   mpc_parser_t* Expr = mpc_new("expr");
   mpc_parser_t* Lispy = mpc_new("lispy");
+  mpc_parser_t* String = mpc_new("string");
   
   /* Define with following Language */
   mpca_lang(MPCA_LANG_DEFAULT,
-    "							\
-      number	: /-?[0-9]+/ ;				\
-      symbol	: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/ ;	\
-      sexpr	: '(' <expr>* ')' ;			\
-      qexpr	: '{' <expr>* '}' ;			\
-      expr   : <number> | <symbol> | <sexpr> | <qexpr> ;\
-      lispy	: /^/ <expr>* /$/ ;			\
+    "									\
+      number	: /-?[0-9]+/ ;						\
+      symbol	: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/ ;			\
+      string	: /\"(\\\\.|[^\"])*\"/ ;				\
+      sexpr	: '(' <expr>* ')' ;					\
+      qexpr	: '{' <expr>* '}' ;					\
+      expr  	: <number> | <symbol> | <string> | <sexpr> | <qexpr> ;	\
+      lispy	: /^/ <expr>* /$/ ;					\
     ",
-    Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
+    Number, Symbol, String, Sexpr, Qexpr, Expr, Lispy);
   
   /* Print Version and Exit Information */
   puts("Lispy Version 0.0.0.0.5");
@@ -1061,7 +1107,7 @@ int main(int argc, char** argv) {
   lenv_del(e);
   
   /* Undefine and Delete the Parser */
-  mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
+  mpc_cleanup(7, Number, Symbol, Sexpr, Qexpr, Expr, Lispy, String);
   
   return 0;
 } 
