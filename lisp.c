@@ -27,6 +27,16 @@ void add_history(char* unused) {}
 #endif
 
 /* Forward Declaration */
+/* parser pointers */
+
+  mpc_parser_t* Number;
+  mpc_parser_t* Symbol;
+  mpc_parser_t* Sexpr;
+  mpc_parser_t* Qexpr;
+  mpc_parser_t* Expr;
+  mpc_parser_t* Lispy;
+  mpc_parser_t* String;
+  mpc_parser_t* Comment;
 /* structure for storing different lisp value types */
 struct lval;
 /* structure which stores the name and value of everything named in our program */
@@ -1017,8 +1027,88 @@ lval* builtin_if(lenv* e, lval* a) {
   return x;
 }
 
+/* Prints data from running programs */
+lval* builtin_print(lenv* e, lval* a) {
+  for (int i = 0; i < a->count; i++) {
+    lval_print(a->cell[i]);
+    putchar(' ');
+  }
+  
+  putchar('\n');
+  lval_del(a);
+  
+  return lval_sexpr();
+}
+
+/* Prints errors */
+lval* builtin_error(lenv* e, lval* a) {
+  /* Check if it passes in a single string arguement */
+  LASSERT(a, a->count == 1,
+      "Function 'load' passed incorrect number of arguements. "
+      "Got %i, expected %i",
+      a->count, 1);
+  LASSERT(a, a->cell[0]->type == LVAL_STR,
+    "Function '!=' passed incorrect type. "
+    "Got %s, expected %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_STR));
+  
+  lval* err = lval_err(a->cell[0]->str);
+  
+  lval_del(a);
+  return err;
+}
+
+/* Loads in a file */
+lval* builtin_load(lenv* e, lval* a) {
+  /* Check if it passes in a single string arguement */
+  LASSERT(a, a->count == 1,
+    "Function 'load' passed incorrect number of arguements. "
+    "Got %i, expected %i",
+    a->count, 1);
+  LASSERT(a, a->cell[0]->type == LVAL_STR,
+    "Function '!=' passed incorrect type. "
+    "Got %s, expected %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_STR));
+    
+  /* Parse file given by string name; gives us an abstract syntax tree */
+  mpc_result_t r;
+  if (mpc_parse_contents(a->cell[0]->str, Lispy, &r)) {
+    /* Read contents; there are multiple expressions that can be evaluated separatedly */
+    lval* expr = lval_read(r.output);
+    mpc_ast_delete(r.output);
+    
+    /* Evaluate each expression */
+    while (expr->count) {
+      lval* x = lval_eval(e, lval_pop(expr, 0));
+      if (x->type == LVAL_ERR) { lval_println(x); }
+      lval_del(x);
+    }
+    
+    lval_del(expr);
+    lval_del(a);
+    
+    return lval_sexpr(); // Empty list
+    
+  } else {
+    /* Get parse error as string */
+    char* err_msg = mpc_err_string(r.error);
+    mpc_err_delete(r.error);
+    
+    lval* err = lval_err("Could not load Library %s", err_msg);
+    free(err_msg);
+    lval_del(a);
+    
+    return err;
+  }
+}
+
 /* Add builtin functions to environment */
 void lenv_add_builtins(lenv* e) {
+  /* String Functions */
+  lenv_add_builtin(e, "load", builtin_load);
+  lenv_add_builtin(e, "error", builtin_error);
+  lenv_add_builtin(e, "print", builtin_print);
+  
   /* Comparison Functions */
   lenv_add_builtin(e, "if", builtin_if);
   lenv_add_builtin(e, "==", builtin_eq);
@@ -1049,14 +1139,14 @@ void lenv_add_builtins(lenv* e) {
 
 int main(int argc, char** argv) {
   /* Create some parsers */
-  mpc_parser_t* Number = mpc_new("number");
-  mpc_parser_t* Symbol = mpc_new("symbol");
-  mpc_parser_t* Sexpr = mpc_new("sexpr");
-  mpc_parser_t* Qexpr = mpc_new("qexpr");
-  mpc_parser_t* Expr = mpc_new("expr");
-  mpc_parser_t* Lispy = mpc_new("lispy");
-  mpc_parser_t* String = mpc_new("string");
-  mpc_parser_t* Comment = mpc_new("comment");
+  Number = mpc_new("number");
+  Symbol = mpc_new("symbol");
+  Sexpr = mpc_new("sexpr");
+  Qexpr = mpc_new("qexpr");
+  Expr = mpc_new("expr");
+  Lispy = mpc_new("lispy");
+  String = mpc_new("string");
+  Comment = mpc_new("comment");
   
   /* Define with following Language */
   mpca_lang(MPCA_LANG_DEFAULT,
@@ -1073,40 +1163,58 @@ int main(int argc, char** argv) {
     ",
     Number, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
   
-  /* Print Version and Exit Information */
-  puts("Lispy Version 0.0.0.0.5");
-  puts("Press Ctrl+c to Exit\n");
-  
   /* Create new environment and add builtin functions */
   lenv* e = lenv_new();
   lenv_add_builtins(e);
   
-  /* In a never ending loop */
-  while (1) {
-    /* Output prompt and get input */
-    char* input = readline("lispy> ");
-    /* Add input to history */
-    add_history(input);
-    
-    /* Attempt to parse user input */
-    mpc_result_t r;
-    if (mpc_parse("<stdin>", input, Lispy, &r)) {
-      /* On success print the AST */
-      lval* x = lval_eval(e, lval_read(r.output));
-      lval_println(x);
-      lval_del(x);
+  if (argc == 1) {
+  
+    /* Print Version and Exit Information */
+    puts("Lispy Version 0.0.0.0.5");
+    puts("Press Ctrl+c to Exit\n");
+  
+    /* In a never ending loop */
+    while (1) {
+      /* Output prompt and get input */
+      char* input = readline("lispy> ");
+      /* Add input to history */
+      add_history(input);
       
-      mpc_ast_delete(r.output);
-    } else {
-      /* Otherwise print error */
-      mpc_err_print(r.error);
-      mpc_err_delete(r.error);
-    }
+      /* Attempt to parse user input */
+      mpc_result_t r;
+      if (mpc_parse("<stdin>", input, Lispy, &r)) {
+        /* On success print the AST */
+        lval* x = lval_eval(e, lval_read(r.output));
+        lval_println(x);
+        lval_del(x);
+        
+        mpc_ast_delete(r.output);
+      } else {
+        /* Otherwise print error */
+        mpc_err_print(r.error);
+        mpc_err_delete(r.error);
+      }
     
-    /* Free retrieved input */
-    free(input);
+      /* Free retrieved input */
+      free(input);
+    }
   }
   
+  /* If supplied with list of files */
+  if (argc >= 2) {
+    /* loop over each supplied filename */
+    for (int i = 1; i < argc; i++) {
+      /* Argument list with single argument (filename) */
+      lval* args = lval_add(lval_sexpr(), lval_str(argv[i]));
+      
+      /* Pass to builtin load to get result */
+      lval* x = builtin_load(e, args);
+      /* If result is error, print */
+      if (x->type == LVAL_ERR) { lval_println(x); }
+      lval_del(x);
+    }
+  }
+    
   /* Delete environment */
   lenv_del(e);
   
