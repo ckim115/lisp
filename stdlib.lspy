@@ -1,0 +1,168 @@
+; Standard Library. Load at startup
+; Atoms
+(def {nil} {})
+(def {true} 1)
+(def {false} 0)
+
+; Function Definitions
+;   Allow us to define functions in a neater way
+(def {fun} (\{f b} {
+  def (head f) (\ (tail f) b)
+}))
+
+;   Unpack list for function
+(fun {unpack f l} {
+  eval (join (list f) l)
+})
+
+;   Pack list for function
+(fun {pack f & xs} {f xs})
+
+;   Curry/Uncurry
+(def {curry} unpack)
+(def {curry} pack)
+
+;   Perform several things in sequence
+(fun {do & l} {
+  if (== l nil)
+    {nil}
+    {last l}
+})
+
+;   Open new scope
+(fun {let b} {
+  ((\ {_} b) ())
+})
+
+;   Logical Functions
+(fun {not x} {- 1 x})
+(fun {and x y} {* x y})
+(fun {or x y} {+ x y})
+
+; Misc
+;   Applies arguements to function in reversed order
+(fun {flip f a b} {f b a})
+
+;   Compose two functions; applies both in series -> f(g(x))
+(fun {comp f g x} {f (g x)})
+
+; List Functions
+;   First, second, or third item in list
+(fun {fst l} { eval (head l) })
+(fun {snd l} { eval (head (tail l)) })
+(fun {trd l} { eval (head (tail (tail l))) })
+
+;   List length
+(fun {len l} {
+  if (== l nil)
+    {0} ; if
+    {+ 1 (len (tail l))} ; else
+})
+
+;   Nth item in list
+(fun {nth n l} {
+  if (== n 0)
+    {fst l}
+    {nth (- n 1) (tail l)}
+})
+
+;   Last item in list
+(fun {last l} {nth (- (len l) 1) l})
+
+;   Take n items
+(fun {take n l} {
+  if (== n 0) 
+    {nil}
+    {join (head l) (take (- n 1) (tail l))}
+})
+
+;   Drop n items
+(fun {drop n l} {
+  if (== n 0)
+    {1}
+    {drop (- n 1) (tail l)}
+})
+
+;   Split list until/to n
+(fun {split n l} {list (take n l) (drop n l)})
+
+;   Check if element of list 
+(fun {elem x l} {
+  if (== l nil)
+    {false}
+    {if (== x (fst l)) {true} {elem x (tail l)}}
+})
+
+;   Apply function to list
+(fun {map f l} {
+  if (== l nil)
+    {nil}
+    {join (list (f (fst l))) (map f (tail l))}
+})
+
+;   Apply filter to list
+(fun {filter f l} {
+  if (== l nil)
+    {nil}
+    {join (if (f (fst l)) {head l} {nil}) (filter f (tail l))}
+})
+
+
+;   Fold left
+(fun {foldl f z l} {
+  if (== l nil)
+    {z}
+    {foldl f (f z (fst l)) (tail l)}
+})
+
+;   Sum and product of list elements
+(fun {sum l} {foldl + 0 l})
+(fun {product l} {foldl * 1 l})
+
+; Conditional Functions
+;   Select; case and switch with function evaluation
+(fun {select & cs}  {
+  if (== cs nil)
+    {error "No selection found"}
+    {if (fst (fst cs)) {snd (fst cs)} {unpack select (tail cs)}}
+})
+
+;   Case and switch from C
+(fun {case x & cs} {
+  if (== cs nil)
+    {error "No case found"}
+    {if (== x (fst (fst cs))) {snd (fst cs)} {
+      unpack case (join (list x) (tail cs))}}
+})
+
+;   Otherwise/ default case
+(def {otherwise} true)
+
+;   Select test; print day of month suffix
+(fun {month-day-suffix i} {
+  select
+    {(== i 0) "st"}
+    {(== i 1) "nd"}
+    {(== i 2) "rd"}
+    {otherwise "th"}
+})
+
+;   Case switch test; day name
+(fun {day-name x} {
+  case x
+    {0 "Monday"}
+    {1 "Tuesday"}
+    {2 "Wednesday"}
+    {3 "Thursday"}
+    {4 "Friday"}
+    {5 "Saturday"}
+    {6 "Sunday"}
+})
+
+; Fibonacci
+(fun {fib n} {
+  select
+    { (== n 0) 0 }
+    { (== n 1) 1 }
+    { otherwise (+ (fib (- n 1)) (fib (- n 2))) }
+})

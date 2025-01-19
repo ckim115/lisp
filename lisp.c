@@ -1069,7 +1069,7 @@ lval* builtin_load(lenv* e, lval* a) {
     "Function '!=' passed incorrect type. "
     "Got %s, expected %s",
     ltype_name(a->cell[0]->type), ltype_name(LVAL_STR));
-    
+  
   /* Parse file given by string name; gives us an abstract syntax tree */
   mpc_result_t r;
   if (mpc_parse_contents(a->cell[0]->str, Lispy, &r)) {
@@ -1172,6 +1172,14 @@ int main(int argc, char** argv) {
     /* Print Version and Exit Information */
     puts("Lispy Version 0.0.0.0.5");
     puts("Press Ctrl+c to Exit\n");
+      
+    /* Load stdlib file */
+    puts("Loading in stdlib...");
+    lval* stdlib = lval_add(lval_sexpr(), lval_str("stdlib.lspy"));
+    lval* s = builtin_load(e, stdlib);
+    if (s->type == LVAL_ERR) { lval_println(s); }
+    lval_del(s);
+    puts("stdlib loaded in\n");
   
     /* In a never ending loop */
     while (1) {
