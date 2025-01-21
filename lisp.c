@@ -28,15 +28,14 @@ void add_history(char* unused) {}
 
 /* Forward Declaration */
 /* parser pointers */
-
-  mpc_parser_t* Number;
-  mpc_parser_t* Symbol;
-  mpc_parser_t* Sexpr;
-  mpc_parser_t* Qexpr;
-  mpc_parser_t* Expr;
-  mpc_parser_t* Lispy;
-  mpc_parser_t* String;
-  mpc_parser_t* Comment;
+mpc_parser_t* Number;
+mpc_parser_t* Symbol;
+mpc_parser_t* Sexpr;
+mpc_parser_t* Qexpr;
+mpc_parser_t* Expr;
+mpc_parser_t* Lispy;
+mpc_parser_t* String;
+mpc_parser_t* Comment;
 /* structure for storing different lisp value types */
 struct lval;
 /* structure which stores the name and value of everything named in our program */
@@ -46,7 +45,7 @@ typedef struct lenv lenv;
 
 /* Lisp Value */
 /* Enum for possible lval types */
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN, LVAL_STR };
+enum { LVAL_NUM, LVAL_DOUBLE, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN, LVAL_STR };
 
 /* New function pointer type declaration lbuiltin.
     To get an lval*, we dereference lbuiltin and call with lenv* and lval* */
@@ -55,7 +54,7 @@ typedef lval*(*lbuiltin)(lenv*, lval*);
 struct lval {
   int type;
   
-  long num;
+  double num;
   /* Error Symbol and String types have some string data; will need to free */
   char* err;
   char* sym;
@@ -84,6 +83,14 @@ struct lenv {
 lval* lval_num(long x) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_NUM;
+  v->num = x;
+  return v;
+}
+
+/* Construct a pointer to a new Double lval */
+lval* lval_double(double x) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_DOUBLE;
   v->num = x;
   return v;
 }
@@ -179,7 +186,8 @@ lval* lval_copy(lval* v) {
   x->type = v->type;
   
   switch (v->type) {
-    case LVAL_NUM: x->num = v->num; break;
+    case LVAL_NUM: 
+    case LVAL_DOUBLE: x->num = v->num; break;
     case LVAL_FUN: 
       if(v->builtin) {
         x->builtin = v->builtin; 
@@ -236,8 +244,9 @@ void lenv_del(lenv* e);
 void lval_del(lval* v) {
   
   switch (v->type) {
-    /* Do nothing for number type or function type */
-    case LVAL_NUM: break;
+    /* Do nothing for number, double, or function type */
+    case LVAL_NUM: 
+    case LVAL_DOUBLE: break;
     case LVAL_FUN: 
       /* If it is user-defined */
       if(!v->builtin) {
@@ -398,8 +407,9 @@ void lval_print_str(lval* v) {
 /* Print an lval */
 void lval_print(lval* v) {
   switch (v->type) {
-    /* In the case the type is a number print its, then break */
-    case LVAL_NUM:	printf("%li", v->num); break;
+    /* In the case the type is a number or double print is, then break */
+    case LVAL_NUM:	printf("%li", (long) v->num); break;
+    case LVAL_DOUBLE:	printf("%f", (double) v->num); break;
     /* In the case the type is an error */
     case LVAL_ERR:	printf("Error: %s", v->err); break;
     case LVAL_SYM:	printf("%s", v->sym); break;
@@ -481,11 +491,15 @@ lval* lval_eval(lenv* e, lval* v) {
   return v;
 }
 
-/* Read node tagged as number */
+/* Read node tagged as number. Check if double or integer */
 lval* lval_read_num(mpc_ast_t* t) {
   errno = 0;
-  long x = strtol(t->contents, NULL, 10);
-  return errno != ERANGE ? lval_num(x) : lval_err("invalid number");
+  if (strchr(t->contents, '.')) {
+    double d = strtod(t->contents, NULL);
+    return errno != ERANGE ? lval_double(d) : lval_err("invalid number");
+  }
+  long i = strtol(t->contents, NULL, 10);
+  return errno != ERANGE ? lval_num(i) : lval_err("invalid number");
 }
 
 /* Deals with reading user input strings as they are in an escape format */
@@ -631,6 +645,7 @@ char* ltype_name(int t) {
   switch(t) {
     case LVAL_FUN: return "Function";
     case LVAL_NUM: return "Number";
+    case LVAL_DOUBLE: return "Double";
     case LVAL_ERR: return "Error";
     case LVAL_SYM: return "Symbol";
     case LVAL_STR: return "String";
@@ -640,22 +655,20 @@ char* ltype_name(int t) {
   }
 }
 
-
 /* Function performing calculator commands */
 lval* builtin_op(lenv* e, lval* a, char* op) {
   /* Ensure all arguments are numbers */
   for (int i = 0; i < a->count; i++) {
-    if (a->cell[i]->type != LVAL_NUM) {
+    if (a->cell[i]->type != LVAL_NUM && a->cell[i]->type != LVAL_DOUBLE) {
       lval_del(a);
       return lval_err("Function '%s' passed incorrect type for argument 1. "
-      "Expected %s.", 
-      op, ltype_name(LVAL_NUM));
+      "Expected %s or %s.", 
+      op, ltype_name(LVAL_NUM), ltype_name(LVAL_DOUBLE));
     }
   }
   
   /* Pop first element */
   lval* x = lval_pop(a, 0);
-  
   /* If no arguments and sub then perform unary negation */
   if ((strcmp(op, "-") == 0) && a->count == 0) {
     x->num = -x->num;
@@ -666,12 +679,13 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
     
     /* Pop the next element */
     lval* y = lval_pop(a, 0);
+    if (x->type == LVAL_NUM && y->type == LVAL_DOUBLE) x->type = LVAL_DOUBLE;
     
     /* Perform operations */
     if (strcmp(op, "+") == 0) { x->num += y->num; }
     if (strcmp(op, "-") == 0) { x->num -= y->num; }
     if (strcmp(op, "*") == 0) { x->num *= y->num; }
-    if (strcmp(op, "/") == 0) { 
+    if (strcmp(op, "/") == 0) {
       /* If second operand is zero return error */
       if (y->num == 0) {
         lval_del(x);
@@ -889,17 +903,17 @@ lval* builtin_lambda(lenv* e, lval* a) {
 }
 
 lval* builtin_ord(lenv* e, lval* a, char* op) {
-  /* Check if only comparing 2 numbers */
+  /* Check if only comparing 2 values */
   LASSERT(a, a->count == 2,
       "Function '%s' passed incorrect number of arguements. "
       "Got %i, expected %i",
       op, a->count, 2);
       
   for (int i = 0; i < a->count; i++) {
-    LASSERT(a, a->cell[i]->type == LVAL_NUM,
+    LASSERT(a, a->cell[i]->type == LVAL_NUM || a->cell[i]->type == LVAL_DOUBLE,
       "Function '!=' passed incorrect type. "
-      "Got %s, expected %s",
-      ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM));
+      "Got %s, expected %s or %s",
+      ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM), ltype_name(LVAL_DOUBLE));
   }
   
   int r;
@@ -936,12 +950,16 @@ lval* builtin_le(lenv* e, lval* a) {
 }
 
 int lval_eq(lval* x, lval* y) {
-  /* Different types/values/string values always inequal */
-  if (x->type != y->type) { return 0; }
-  
+  /* Different types/values/string values always inequal, BUT doubles/numbers equal*/
+  if (x->type != LVAL_NUM && x->type != LVAL_DOUBLE) {
+    if(y->type != LVAL_NUM && y->type != LVAL_DOUBLE) {
+      if (x->type != y->type) { return 0; }
+    }
+  }
   /* Compare based on type */
   switch (x->type) {
-    case LVAL_NUM: return (x->num == y->num);
+    case LVAL_NUM:
+    case LVAL_DOUBLE: return (x->num == y->num);
     
     case LVAL_ERR: return (strcmp(x->err, y->err) == 0);
     case LVAL_SYM: return (strcmp(x->sym, y->sym) == 0);
@@ -1151,14 +1169,14 @@ int main(int argc, char** argv) {
   /* Define with following Language */
   mpca_lang(MPCA_LANG_DEFAULT,
     "							\
-      number	: /-?[0-9]+/ ;				\
+      number	: /-?[0-9]+(\\.[0-9]*)?/ ;		\
       symbol	: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/ ;	\
       string	: /\"(\\\\.|[^\"])*\"/ ;		\
       comment	: /;[^\\r\\n]*/ ;			\
       sexpr	: '(' <expr>* ')' ;			\
       qexpr	: '{' <expr>* '}' ;			\
       expr  	: <number> | <symbol> | <string> 	\
-      		| <comment> | <sexpr> | <qexpr> ;			\
+      		| <comment> | <sexpr> | <qexpr> ;	\
       lispy	: /^/ <expr>* /$/ ;			\
     ",
     Number, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
