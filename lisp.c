@@ -926,6 +926,33 @@ lval* builtin_ord(lenv* e, lval* a, char* op) {
   return lval_num(r);
 }
 
+lval* builtin_log(lenv* e, lval* a, char* op) {
+  /* Should only be comparing 0 or 1 */
+  for (int i = 0; i < a->count; i++) {
+    LASSERT_TYPE(op, a, i, LVAL_NUM);
+  }
+  
+  int r;
+  
+  /* Check if only comparing 2 values for && and || or 1 for ! */
+  if (strcmp(op, "&&") == 0) {
+    LASSERT_NUM(op, a, 2);
+    r = (a->cell[0]->num && a->cell[1]->num);
+  }
+  
+  if (strcmp(op, "||") == 0) {
+    LASSERT_NUM(op, a, 2);
+    r = (a->cell[0]->num || a->cell[1]->num);
+  }
+  
+  if (strcmp(op, "!") == 0) {
+    LASSERT_NUM(op, a, 1);
+    r = (!a->cell[0]->num);
+  }
+  lval_del(a);
+  return lval_num(r);
+}
+
 lval* builtin_gt(lenv* e, lval* a) {
   return builtin_ord(e, a, ">");
 }
@@ -940,6 +967,18 @@ lval* builtin_ge(lenv* e, lval* a) {
 
 lval* builtin_le(lenv* e, lval* a) {
   return builtin_ord(e, a, "<=");
+}
+
+lval* builtin_and(lenv* e, lval* a) {
+  return builtin_log(e, a, "&&");
+}
+
+lval* builtin_or(lenv* e, lval* a) {
+  return builtin_log(e, a, "||");
+}
+
+lval* builtin_not(lenv* e, lval* a) {
+  return builtin_log(e, a, "!");
 }
 
 int lval_eq(lval* x, lval* y) {
@@ -1107,6 +1146,11 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "<",  builtin_lt);
   lenv_add_builtin(e, ">=", builtin_ge);
   lenv_add_builtin(e, "<=", builtin_le);
+  
+  /* Logical Operator Functions */
+  lenv_add_builtin(e, "&&", builtin_and);
+  lenv_add_builtin(e, "||", builtin_or);
+  lenv_add_builtin(e, "!", builtin_not);
 
   /* Variable Functions */
   lenv_add_builtin(e, "def", builtin_def);
@@ -1143,7 +1187,7 @@ int main(int argc, char** argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "							\
       number	: /-?[0-9]+(\\.[0-9]*)?/ ;		\
-      symbol	: /[a-zA-Z0-9_+\\-%*\\/\\\\=<>!&]+/ ;	\
+      symbol	: /[a-zA-Z0-9_+\\-%*\\/\\\\=<>!&|]+/ ;	\
       string	: /\"(\\\\.|[^\"])*\"/ ;		\
       comment	: /;[^\\r\\n]*/ ;			\
       sexpr	: '(' <expr>* ')' ;			\
