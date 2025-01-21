@@ -712,6 +712,13 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
       }
       x->num /= y->num;
     }
+    if (strcmp(op, "%") == 0) {
+      if (x->type == LVAL_DOUBLE || y->type == LVAL_DOUBLE) {
+        x = lval_err("% with doubles.");
+        break;
+      }
+      x->num = (long) x->num % (long) y->num;
+    }
     /* Delete element now finished with */
     lval_del(y);
   }
@@ -805,8 +812,13 @@ lval* builtin_mul(lenv* e, lval* a) {
   return builtin_op(e, a, "*");
 }
 
+
 lval* builtin_div(lenv* e, lval* a) {
   return builtin_op(e, a, "/");
+}
+
+lval* builtin_mod(lenv* e, lval* a) {
+  return builtin_op(e, a, "%");
 }
 
 /* Create a symbol lval and function lval with the given name */
@@ -1113,6 +1125,7 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "-", builtin_sub);
   lenv_add_builtin(e, "*", builtin_mul);
   lenv_add_builtin(e, "/", builtin_div);
+  lenv_add_builtin(e, "%", builtin_mod);
 }
 
 int main(int argc, char** argv) {
@@ -1130,7 +1143,7 @@ int main(int argc, char** argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
     "							\
       number	: /-?[0-9]+(\\.[0-9]*)?/ ;		\
-      symbol	: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/ ;	\
+      symbol	: /[a-zA-Z0-9_+\\-%*\\/\\\\=<>!&]+/ ;	\
       string	: /\"(\\\\.|[^\"])*\"/ ;		\
       comment	: /;[^\\r\\n]*/ ;			\
       sexpr	: '(' <expr>* ')' ;			\
