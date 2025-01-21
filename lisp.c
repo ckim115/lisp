@@ -640,6 +640,23 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
     return err; \
     }
 
+#define LASSERT_NUM(f, args, num) \
+  if (args->count != num) { \
+    lval* err = lval_err("Function '%s' did not pass %li arguements." \
+      " Got %i, expected %i.", f, num, args->count, num); \
+    lval_del(args); \
+    return err; \
+    }
+
+#define LASSERT_TYPE(f, args, i, t) \
+  if (a->cell[i]->type != t) { \
+    lval* err = lval_err("Function '%s' passed incorrect type. " \
+      "Got %s, expected %s.", \
+      f, ltype_name(a->cell[i]->type), ltype_name(t)); \
+    lval_del(args); \
+    return err; \
+    }
+    
 /* String names for lval types */
 char* ltype_name(int t) {
   switch(t) {
@@ -706,14 +723,8 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
 /* Function that pops the first item of a list and removes the list */
 lval* builtin_head(lenv* e, lval* a) {
   /* Must pass exactly 1 arguement, which is a qexpr */
-  LASSERT(a, a->count == 1,
-    "Function 'head' passed too many arguements. "
-    "Got %i, expected %i.",
-    a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'head' passed incorrect type. "
-    "Got %s, expected %s.",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
+  LASSERT_NUM("head", a, 1);
+  LASSERT_TYPE("head", a, 0, LVAL_QEXPR);
   LASSERT(a, a->cell[0]->count != 0,
     "Function 'head' passed {}");
     
@@ -725,16 +736,10 @@ lval* builtin_head(lenv* e, lval* a) {
 
 /* Function that pops and delete the first item of a list, returning hte list */
 lval* builtin_tail(lenv* e, lval* a) {
-  LASSERT(a, a->count == 1,
-    "Function 'head' passed too many arguements. "
-    "Got %i, expected %i.",
-    a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'head' passed incorrect type. "
-    "Got %s, expected %s.",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
+  LASSERT_NUM("tail", a, 1);
+  LASSERT_TYPE("tail", a, 0, LVAL_QEXPR);
   LASSERT(a, a->cell[0]->count != 0,
-    "Function 'head' passed {}");
+    "Function 'tail' passed {}");
   
   lval* v = lval_take(a, 0);
   lval_del(lval_pop(v, 0));
@@ -749,14 +754,8 @@ lval* builtin_list(lenv* e, lval* a) {
 
 /* Function that converts a qexpr to a sexpr and evaluates */
 lval* builtin_eval(lenv* e, lval* a) {
-  LASSERT(a, a->count == 1,
-    "Function 'eval' passed too many arguements!"
-    "Got %i, expected %i",
-    a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function 'eval' passed incorrect type!"
-    "Got %s, expected %s",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
+  LASSERT_NUM("eval", a, 1);
+  LASSERT_TYPE("eval", a, 0, LVAL_QEXPR);
     
   lval* x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
@@ -780,10 +779,7 @@ lval* lval_join(lval* x, lval* y) {
 lval* builtin_join(lenv* e, lval* a) {
   /* Check if all qexprs */
   for (int i = 0; i < a->count; i++) {
-    LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
-      "Function 'join' passed incorrect type. "
-      "Got %s, expected %s",
-      ltype_name(a->cell[i]->type), ltype_name(LVAL_QEXPR));
+    LASSERT_TYPE("join", a, i, LVAL_QEXPR);
   }
   
   lval* x = lval_pop(a, 0);
@@ -823,10 +819,7 @@ void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
 }
 
 lval* builtin_var(lenv* e, lval* a, char* func) {
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function '%s' passed incorrect type. "
-    "Got %s, expected %s",
-    func, ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
+  LASSERT_TYPE(func, a, 0, LVAL_QEXPR);
   
   
   /* First argument is symbol list (ex 'x' in {x} 20) */
@@ -874,18 +867,9 @@ lval* builtin_put(lenv* e, lval* a) {
 /* Lambda function builtin */
 lval* builtin_lambda(lenv* e, lval* a) {
   /* Check that there are 2 Q-Expression arguements */
-  LASSERT(a, a->count == 2,
-    "Function '\\' did not pass 2 arguements. "
-    "Got %i, expected %i.",
-    a->count, 2);
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-    "Function '\\' passed incorrect first type. "
-    "Got %s, expected %s.",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
-  LASSERT(a, a->cell[1]->type == LVAL_QEXPR,
-    "Function '\\' passed incorrect second type. "
-    "Got %s, expected %s.",
-    ltype_name(a->cell[1]->type), ltype_name(LVAL_QEXPR));
+  LASSERT_NUM("\\", a, 2);
+  LASSERT_TYPE("\\", a, 0, LVAL_QEXPR);
+  LASSERT_TYPE("\\", a, 1, LVAL_QEXPR);
   
   /* Check that first Q-Expression (the formals) only contains Symbols */
   for (int i = 0; i < a->cell[0]->count; i++) {
@@ -904,16 +888,13 @@ lval* builtin_lambda(lenv* e, lval* a) {
 
 lval* builtin_ord(lenv* e, lval* a, char* op) {
   /* Check if only comparing 2 values */
-  LASSERT(a, a->count == 2,
-      "Function '%s' passed incorrect number of arguements. "
-      "Got %i, expected %i",
-      op, a->count, 2);
+  LASSERT_NUM(op, a, 2);
       
   for (int i = 0; i < a->count; i++) {
     LASSERT(a, a->cell[i]->type == LVAL_NUM || a->cell[i]->type == LVAL_DOUBLE,
-      "Function '!=' passed incorrect type. "
+      "Function '%s' passed incorrect type. "
       "Got %s, expected %s or %s",
-      ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM), ltype_name(LVAL_DOUBLE));
+      op, ltype_name(a->cell[i]->type), ltype_name(LVAL_NUM), ltype_name(LVAL_DOUBLE));
   }
   
   int r;
@@ -988,10 +969,7 @@ int lval_eq(lval* x, lval* y) {
 
 lval* builtin_cmp(lenv* e, lval* a, char* op) {
   /* Check if only comparing 2 arguements */
-  LASSERT(a, a->count == 2,
-      "Function '%s' passed incorrect number of arguements. "
-      "Got %i, expected %i",
-      op, a->count, 2);
+  LASSERT_NUM(op, a, 2);
       
   int r;
   if (strcmp(op, "==") == 0) {
@@ -1014,19 +992,13 @@ lval* builtin_ne(lenv* e, lval* a) {
 
 lval* builtin_if(lenv* e, lval* a) {
   /* Check if only comparing 3 arguements (1 number, 2 qexprs) */
-  LASSERT(a, a->count == 3,
-      "Function 'if' passed incorrect number of arguements. "
-      "Got %i, expected %i",
-      a->count, 3);
-  LASSERT(a, a->cell[0]->type == LVAL_NUM,
-    "Function '!=' passed incorrect type. "
-    "Got %s, expected %s",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_NUM));
+  LASSERT_NUM("if", a, 3);
+  LASSERT(a, a->cell[0]->type == LVAL_NUM || a->cell[0]->type == LVAL_DOUBLE,
+    "Function 'if' passed incorrect type. "
+    "Got %s, expected %s or %s",
+    ltype_name(a->cell[0]->type), ltype_name(LVAL_NUM), ltype_name(LVAL_DOUBLE));
   for (int i = 1; i < a->count; i++) {
-    LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
-      "Function '!=' passed incorrect type. "
-      "Got %s, expected %s",
-      ltype_name(a->cell[i]->type), ltype_name(LVAL_QEXPR));
+    LASSERT_TYPE("if", a, i, LVAL_QEXPR);
   }
   
   /* Mark both expressions as evaluable qexpr -> sexpr */
@@ -1061,14 +1033,8 @@ lval* builtin_print(lenv* e, lval* a) {
 /* Prints errors */
 lval* builtin_error(lenv* e, lval* a) {
   /* Check if it passes in a single string arguement */
-  LASSERT(a, a->count == 1,
-      "Function 'load' passed incorrect number of arguements. "
-      "Got %i, expected %i",
-      a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_STR,
-    "Function '!=' passed incorrect type. "
-    "Got %s, expected %s",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_STR));
+  LASSERT_NUM("error", a, 1);
+  LASSERT_TYPE("error", a, 0, LVAL_STR);
   
   lval* err = lval_err(a->cell[0]->str);
   
@@ -1079,14 +1045,8 @@ lval* builtin_error(lenv* e, lval* a) {
 /* Loads in a file */
 lval* builtin_load(lenv* e, lval* a) {
   /* Check if it passes in a single string arguement */
-  LASSERT(a, a->count == 1,
-    "Function 'load' passed incorrect number of arguements. "
-    "Got %i, expected %i",
-    a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_STR,
-    "Function '!=' passed incorrect type. "
-    "Got %s, expected %s",
-    ltype_name(a->cell[0]->type), ltype_name(LVAL_STR));
+  LASSERT_NUM("load", a, 1);
+  LASSERT_TYPE("load", a, 0, LVAL_STR);
   
   /* Parse file given by string name; gives us an abstract syntax tree */
   mpc_result_t r;
